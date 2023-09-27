@@ -1,8 +1,11 @@
 
+//add libdrm
+
 #include <drm/drm_atomic_state_helper.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_modeset_helper_vtables.h>
 #include <drm/drm_probe_helper.h>
+#include <drm/drm_edid.h>
 
 #include "ms912x.h"
 
@@ -40,7 +43,7 @@ static enum drm_connector_status ms912x_detect(struct drm_connector *connector,
 		return connector_status_unknown;
 
 	return status == 1 ? connector_status_connected :
-				   connector_status_disconnected;
+			     connector_status_disconnected;
 }
 static const struct drm_connector_helper_funcs ms912x_connector_helper_funcs = {
 	.get_modes = ms912x_connector_get_modes,
