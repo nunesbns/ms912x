@@ -1,4 +1,3 @@
-
 #ifndef MS912X_H
 #define MS912X_H
 
@@ -95,7 +94,7 @@ struct ms912x_mode {
 		.pix_fmt = f \
 	}
 
-#define MS912X_MAX_TRANSFER_LENGTH 65536
+#define MS912X_MAX_TRANSFER_LENGTH 131072
 
 #define to_ms912x(x) container_of(x, struct ms912x_device, drm)
 

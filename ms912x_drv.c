@@ -47,7 +47,7 @@ static struct drm_gem_object *
 ms912x_driver_gem_prime_import(struct drm_device *dev, struct dma_buf *dma_buf)
 {
 	struct ms912x_device *ms912x = to_ms912x(dev);
-	
+
 	if (!ms912x->dmadev)
 		return ERR_PTR(-ENODEV);
 
@@ -92,21 +92,6 @@ static const struct ms912x_mode ms912x_mode_list[] = {
 	MS912X_MODE(1440, 900, 60, 0x6b00, MS912X_PIXFMT_UYVY),
 	MS912X_MODE(1680, 1050, 60, 0x7800, MS912X_PIXFMT_UYVY),
 	MS912X_MODE(1920, 1080, 60, 0x8100, MS912X_PIXFMT_UYVY),
-
-	/* CEA mode numbers seem to work */
-	MS912X_MODE(1280, 720, 60, 0x0400, MS912X_PIXFMT_UYVY),
-	MS912X_MODE(1920, 1080, 60, 0x1000, MS912X_PIXFMT_UYVY),
-	MS912X_MODE(1280, 720, 50, 0x1300, MS912X_PIXFMT_UYVY),
-
-	MS912X_MODE(1920, 1080, 50, 0x1f00, MS912X_PIXFMT_UYVY),
-	MS912X_MODE(1920, 1080, 24, 0x2000, MS912X_PIXFMT_UYVY),
-	MS912X_MODE(1920, 1080, 25, 0x2100, MS912X_PIXFMT_UYVY),
-	MS912X_MODE(1920, 1080, 30, 0x2200, MS912X_PIXFMT_UYVY),
-
-	MS912X_MODE(1280, 720, 24, 0x3c00, MS912X_PIXFMT_UYVY),
-	MS912X_MODE(1280, 720, 25, 0x3d00, MS912X_PIXFMT_UYVY),
-	MS912X_MODE(1280, 720, 30, 0x3e00, MS912X_PIXFMT_UYVY),
-	/* TODO: more mode numbers? */
 };
 
 static const struct ms912x_mode *
@@ -115,7 +100,7 @@ ms912x_get_mode(const struct drm_display_mode *mode)
 	int i;
 	int width = mode->hdisplay;
 	int height = mode->vdisplay;
-	int hz = drm_mode_vrefresh(mode);
+int hz = drm_mode_vrefresh(mode);
 	for (i = 0; i < ARRAY_SIZE(ms912x_mode_list); i++) {
 		if (ms912x_mode_list[i].width == width &&
 		    ms912x_mode_list[i].height == height &&
@@ -164,6 +149,17 @@ int ms912x_pipe_check(struct drm_simple_display_pipe *pipe,
 	return 0;
 }
 
+static struct drm_rect total_damage_rect = { INT_MAX, INT_MAX, INT_MIN,
+					     INT_MIN };
+
+static void update_total_damage_rect(const struct drm_rect *new_rect)
+{
+	total_damage_rect.x1 = min(total_damage_rect.x1, new_rect->x1);
+	total_damage_rect.y1 = min(total_damage_rect.y1, new_rect->y1);
+	total_damage_rect.x2 = max(total_damage_rect.x2, new_rect->x2);
+	total_damage_rect.y2 = max(total_damage_rect.y2, new_rect->y2);
+}
+
 static void ms912x_pipe_update(struct drm_simple_display_pipe *pipe,
 			       struct drm_plane_state *old_state)
 {
@@ -172,9 +168,14 @@ static void ms912x_pipe_update(struct drm_simple_display_pipe *pipe,
 		to_drm_shadow_plane_state(state);
 	struct drm_rect rect;
 
-	if (drm_atomic_helper_damage_merged(old_state, state, &rect))
+	if (drm_atomic_helper_damage_merged(old_state, state, &rect)) {
+		update_total_damage_rect(&rect);
 		ms912x_fb_send_rect(state->fb, &shadow_plane_state->data[0],
-				    &rect);
+				       &total_damage_rect);
+		// Reset the total damage rect after sending
+		total_damage_rect =
+			(struct drm_rect){ INT_MAX, INT_MAX, INT_MIN, INT_MIN };
+	}
 }
 
 static const struct drm_simple_display_pipe_funcs ms912x_pipe_funcs = {

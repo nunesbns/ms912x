@@ -1,5 +1,8 @@
 
 #include <uapi/linux/hid.h>
+#include <linux/vmalloc.h>
+
+
 
 #include "ms912x.h"
 
@@ -116,14 +119,14 @@ int ms912x_set_resolution(struct ms912x_device *ms912x,
 	if (ret < 0)
 		return ret;
 
-	/* ??? Unknown */
+/* ??? Unknown */
 	memset(data, 0, sizeof(data));
 	data[0] = 1;
 	ret = ms912x_write_6_bytes(ms912x, 0x04, data);
 	if (ret < 0)
 		return ret;
 
-	/* ??? Unknown */
+/* ??? Unknown */
 	memset(data, 0, sizeof(data));
 	data[0] = 1;
 	ret = ms912x_write_6_bytes(ms912x, 0x05, data);

@@ -18,11 +18,14 @@ void ms912x_free_urb(struct ms912x_device *ms912x)
 		down(&ms912x->urb_available_list_sem);
 
 		spin_lock_irq(&ms912x->urb_available_list_lock);
-		urb_entry = list_first_entry(&ms912x->urb_available_list, struct ms912x_urb, entry);
+		urb_entry = list_first_entry(&ms912x->urb_available_list,
+					     struct ms912x_urb, entry);
 		list_del(&urb_entry->entry);
 		spin_unlock_irq(&ms912x->urb_available_list_lock);
 
-		usb_free_coherent(usb_dev, MS912X_MAX_TRANSFER_LENGTH, urb_entry->urb->transfer_buffer, urb_entry->urb->transfer_dma);
+		usb_free_coherent(usb_dev, MS912X_MAX_TRANSFER_LENGTH,
+				  urb_entry->urb->transfer_buffer,
+				  urb_entry->urb->transfer_dma);
 		usb_free_urb(urb_entry->urb);
 		kfree(urb_entry);
 	}
@@ -127,7 +130,7 @@ static int ms912x_xrgb_to_yuv422_line(u8 *transfer_buffer, u32 *xrgb_buffer,
 	int i, offset = 0;
 	unsigned int pixel1, pixel2;
 	int r1, g1, b1, r2, g2, b2;
-	int v, y1, u, y2;
+	int y1, y2, u1, v1, u2, v2;
 	for (i = 0; i < len; i += 2) {
 		pixel1 = xrgb_buffer[i];
 		pixel2 = xrgb_buffer[i + 1];
@@ -141,17 +144,14 @@ static int ms912x_xrgb_to_yuv422_line(u8 *transfer_buffer, u32 *xrgb_buffer,
 
 		y1 = ms912x_rgb_to_y(r1, g1, b1);
 		y2 = ms912x_rgb_to_y(r2, g2, b2);
+		u1 = ms912x_rgb_to_u(r1, g1, b1);
+		v1 = ms912x_rgb_to_v(r1, g1, b1);
+		u2 = ms912x_rgb_to_u(r2, g2, b2);
+		v2 = ms912x_rgb_to_v(r2, g2, b2);
 
-		v = (ms912x_rgb_to_v(r1, g1, b1) +
-		     ms912x_rgb_to_v(r2, g2, b2)) /
-		    2;
-		u = (ms912x_rgb_to_u(r1, g1, b1) +
-		     ms912x_rgb_to_u(r2, g2, b2)) /
-		    2;
-
-		transfer_buffer[offset++] = u;
+		transfer_buffer[offset++] = (u1 + u2) >> 1; // Average U value
 		transfer_buffer[offset++] = y1;
-		transfer_buffer[offset++] = v;
+		transfer_buffer[offset++] = (v1 + v2) >> 1; // Average V value
 		transfer_buffer[offset++] = y2;
 	}
 	return offset;
@@ -161,8 +161,7 @@ static const unsigned char ms912x_end_of_buffer[8] = { 0xff, 0xc0, 0x00, 0x00,
 						       0x00, 0x00, 0x00, 0x00 };
 
 void ms912x_fb_send_rect(struct drm_framebuffer *fb,
-				 const struct iosys_map *map,
-				 struct drm_rect *rect)
+			 const struct iosys_map *map, struct drm_rect *rect)
 {
 	int ret, i;
 	void *vaddr = map->vaddr;
@@ -173,7 +172,6 @@ void ms912x_fb_send_rect(struct drm_framebuffer *fb,
 	void *transfer_buffer;
 	int total_length = 0;
 	int transfer_blocks, transfer_length;
-	/* Hardware can only update framebuffer in multiples of 16 horizontally */
 	int x = ALIGN_DOWN(rect->x1, 16);
 	int width = ALIGN(rect->x2, 16) - x;
 	int y1 = rect->y1;
@@ -200,25 +198,27 @@ void ms912x_fb_send_rect(struct drm_framebuffer *fb,
 	if (ret < 0)
 		goto free_transfer_buffer;
 
-	memcpy(transfer_buffer, &header, 8);
-	total_length += 8;
+	// Copiando o header uma vez em vez de várias vezes
+	memcpy(transfer_buffer, &header, sizeof(header));
+	total_length += sizeof(header);
 
 	for (i = y1; i < y2; i++) {
 		const int line_offset = fb->pitches[0] * i;
 		const int byte_offset = line_offset + (x * 4);
-		ms912x_xrgb_to_yuv422_line(transfer_buffer + total_length,
-					   vaddr + byte_offset, width);
-		total_length += width * 2;
+		total_length +=
+			ms912x_xrgb_to_yuv422_line(transfer_buffer + total_length,
+					     vaddr + byte_offset, width);
 	}
 
-	memcpy(transfer_buffer + total_length, ms912x_end_of_buffer, 8);
-	total_length += 8;
+	// Copiando o final do buffer uma vez em vez de várias vezes
+	memcpy(transfer_buffer + total_length, ms912x_end_of_buffer,
+	       sizeof(ms912x_end_of_buffer));
+	total_length += sizeof(ms912x_end_of_buffer);
 
 	transfer_blocks =
 		DIV_ROUND_UP(total_length, MS912X_MAX_TRANSFER_LENGTH);
 
 	for (i = 0; i < transfer_blocks; i++) {
-		/* Last block may be shorter */
 		urb = ms912x_get_urb(ms912x);
 		if (IS_ERR(urb))
 			break;
@@ -235,10 +235,11 @@ void ms912x_fb_send_rect(struct drm_framebuffer *fb,
 		if (ret < 0) {
 			ms912x_urb_completion(urb);
 			break;
-}
 		}
+	}
 
 	drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
+
 free_transfer_buffer:
 	vfree(transfer_buffer);
 dev_exit:
